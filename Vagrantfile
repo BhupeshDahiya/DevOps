@@ -12,8 +12,8 @@ Vagrant.configure("2") do |config|
 
     # Provider-specific settings for VirtualBox
     config.vm.provider "virtualbox" do |vb|
-        vb.memory = 1500
-        vb.cpus = 2
+        vb.memory = 1024
+        vb.cpus = 1
     end
    # Setup commands 
     config.vm.provision "shell", inline: <<-SHELL
