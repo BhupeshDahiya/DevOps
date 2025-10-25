@@ -1,3 +1,3 @@
 # Prerequisites
-Vagrant
+Vagrant \
 Oracle Virtualbox
