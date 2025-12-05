@@ -55,7 +55,12 @@ stages {
                 //binaries = path to complied code, here the complied code makes a new folder named target inside which we find complied test classes/ complied tests.
               }
             }
-
-
+    stage("Quality gate"){
+        steps{
+            timeout(time: 1,unit: 'HOURS'){
+                waitForQualityGate abortPipeline: true
+            }
+        }
+    }
 }
 }
