@@ -82,4 +82,12 @@ stages {
         }
     }
 }
+    post {
+        always {
+            echo 'Slack Notifications.'
+            slackSend channel: '#jenkins', //channel name in your slack
+                color: COLOR_MAP[currentBuild.currentResult],
+                message: "*${currentBuild.currentResult}:* Job ${env.JOB_NAME} build ${env.BUILD_NUMBER} \n More info at: ${env.BUILD_URL}"
+        }
+    }
 }
