@@ -62,5 +62,24 @@ stages {
             }
         }
     }
+    stage("Upload artifact"){
+        steps{
+            nexusArtifactUploader(
+            nexusVersion: 'nexus3',
+            protocol: 'http',
+            nexusUrl: '172.31.6.220:8081', //ip or url of server
+            groupId: 'QA', //unique identifier for project
+            version: "${env.BUILD_ID}-${en.BUILD_TIMESTAMP}", //dynamic versioning using inbuilt jenkins funcs.
+            repository: 'vprofile', //name of the repo in nexus
+            credentialsId: 'nexuslogin', //name of creds to access nexus which are configd in jenkins
+            artifacts: [
+                [artifactId: 'vproapp',
+                classifier: '',
+                file: 'target/vprofile-v2.war', //path to the artifact
+                type: 'war']
+        ]
+     )
+        }
+    }
 }
 }
