@@ -1,0 +1,125 @@
+name: Vprofile CICD Workflow
+on: 
+  push:
+    branches: 
+      - main
+
+  pull_request:
+    branches: 
+      - main
+
+  workflow_dispatch: # to manually trigger the workflow from github actions tab
+
+  #schedule:
+  #  - cron: "10 14 * * 1-5"   # After noon 2:10 pm, Mondat to Friday
+
+# you can define varibles in here as well but its always better to store in github repo action secrets setting
+env:
+    ECR_REPOSITORY: 'appimg'
+# Permissions for the wrokflow to only read and not commit anything to the repo
+permissions: 
+  contents: read
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # tells the workflow to download the repository's entire Git commit history instead of just the single latest commit, for versioning
+
+      - name: Maven Build
+        run: mvn install
+
+      - name: Upload Build Artifact (WAR)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vprofile-app
+          path: target/*.war
+
+      - name: Notify if Build Fails
+        if: failure()
+        run: echo "🚨 Build job failed! Please check logs."
+
+        #always:
+
+  Testing:
+    runs-on: ubuntu-latest
+    needs: Build
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run tests on main branch
+        if: github.ref == 'refs/heads/main' 
+        # github context variable which checks if branch is main or not (true here)
+        run: mvn test
+
+      - name: Checkstyle
+        if: github.ref == 'refs/heads/main'
+        run: mvn checkstyle:checkstyle
+
+      - name: Run tests on other branches
+        if: github.ref != 'refs/heads/main'
+        run: echo "Skipping unit tests and code analysis"
+
+  Security_Scan:
+    runs-on: ubuntu-latest
+    needs: Build
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          exit-code: 0
+          vuln-type: os,library
+          output: trivy-results.json
+
+      - name: Upload Trivy scan results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results
+          path: trivy-results.json
+
+  BUILD_AND_PUBLISH:
+    name: BUILD_AND_PUBLISH
+    runs-on: ubuntu-latest
+    environment: production # to define work env and to reference variables from the env
+    needs: [Build, Testing, Security_Scan]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # the above variables are pre defined in the repository actions settings under production 
+
+      - name: Login to Amazon ECR
+        id: login-ecr # assign id to be able to reference it in next step
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env: # this env is here to just assign values to the below variables
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }} # taking reference from last step and finding registry name from its output
+          IMAGE_TAG: ${{ github.sha }} # to get the latest commit id
+        run: | # this pipe means running multiple cmds at once, -f for path, -t docker img tag, in curr dir -> .
+          docker build -f Docker-files/app/multistage/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
