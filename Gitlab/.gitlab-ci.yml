@@ -1,0 +1,111 @@
+stages:
+  - build
+  - test
+  - security-scan
+  - notify
+  - docker
+
+variables:
+  PROJECT_NAME: vprofile
+  JAVA_OPTS: ${Jvm_opt} 
+
+#build stage
+build-job:
+  stage: build
+  image: maven:3.9.9-eclipse-temurin-17
+#  only:   # Old way to define which branch job would run on
+#    - main
+  rules:
+    # Trigger pipeline if there is a push on main/develop
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+    # Trigger pipeline on a merge request
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    # Trigger when manually started
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    # Trigger on scheduled pipelines
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    # Otherwise never run
+    - when: never
+  script:
+    - echo "Building ${PROJECT_NAME}-test"
+    - echo "Using java option ${JAVA_OPTS}"
+    - echo "Pipeline source $CI_PIPELINE_SOURCE"
+    - mvn install
+  after_script:
+    - ls -la
+  artifacts:
+    paths:
+      - target/*.war
+    when: always
+
+#testing stage
+test-job:
+  stage: test
+  image: maven:3.9.9-eclipse-temurin-17
+  needs: [build-job] # makes sure to run after build, we're doing this to run test with scan
+#  only:   # Old way to define which branch job would run on
+#    - main
+  rules:
+    # Trigger pipeline if there is a push on main/develop
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+    # Trigger pipeline on a merge request
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    # Trigger when manually started
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    # Trigger on scheduled pipelines
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    # Otherwise never run
+    - when: never
+  script:
+    - echo "Testing"
+    - mvn test
+    - mvn checkstyle:checkstyle
+
+scan-job:
+  stage: security-scan
+  image: 
+     name: aquasec/trivy:latest
+     # When you use a img with built in tool the cmd line starts with its name
+     # for eg here the cmd line will start with trivy so when you give additional
+     # cmds the cmd will append word trivy in front and excute and will give an error
+     # the entrypoint option makes it "" so that you can execute cmds
+     entrypoint: [""]
+  needs: [build-job]
+  script:
+    - trivy fs --format json --exit-code 0 --vuln-type os,library --output trivy-results.json .
+  # 0 means go ahead even if it fails, 1 means fail job and a notif can be configured to send
+  # . at end specifies curr working dir for the trivy fs cmd
+  after_script:
+    - ls -la
+  artifacts:
+    paths:
+      - trivy-results.json
+    when: always
+
+docker-build-job:
+  stage: docker
+  image: docker:latest # this img only gives docker cli not docker daemon (needed for build) 
+  # since we cant use docker daemon on gitlab by default we need to mention it as a sidecar by using services option
+  services:
+    - docker:dind # dind = docker inside docker, docker cmd to create docker inside itself, this is the sidecar container
+    # the main container connects to this sidecar container
+  needs: [scan-job]
+  variables:
+    DOCKER_TLS_CERTDIR: "" # when docker cmd runs in dind it creates certs and client needs to provide certs to use deamon, since we are doing this internally we skip it
+    IMAGE_TAG: $CI_COMMIT_SHA
+  script:
+    - echo "Logging in to docker"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    # prints pass and pipes it to login cmd without leaking it to logs, the --password-stdin takes the echo'd pass as standardinp
+    # $CI_REGISTRY is the registry URI
+    - echo "Building docker img"
+    - docker build -f Docker-files/app/multistage/Dockerfile -t $CI_REGISTRY_IMAGE:$IMAGE_TAG . 
+    # build from -f, build tag -t
+    - docker push $CI_REGISTRY_IMAGE:$IMAGE_TAG
+
+notify-job:
+  stage: notify
+  script:
+    - echo "Job failed for ${PROJECT_NAME}, check logs for more info"
+  when: on_failure # only run this job on failure
+   
