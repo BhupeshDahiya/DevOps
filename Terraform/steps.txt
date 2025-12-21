@@ -1,0 +1,3 @@
+Find ami-id from either aws or ami-id finder from ubuntu, 
+then in cli run the cmd replace your ami ID after --image-ids "aws ec2 describe-images --image-ids ami-0030e4319cbf4dbf2"
+this will describe the image and give you all the needed info for this code to fetch the latest ami-idd
