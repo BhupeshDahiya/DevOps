@@ -175,6 +175,8 @@ echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stab
 sudo apt-get update
 sudo apt-get install -y alloy
 
+# Dont forget to change loki and prometheus IP for the config file below
+
 cat <<EOF > /etc/alloy/config.alloy
 // Metrics scraping and remote write to Prometheus
 
